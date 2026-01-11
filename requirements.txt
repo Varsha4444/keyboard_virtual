@@ -1,0 +1,6 @@
+opencv-python
+mediapipe
+PyQt5
+numpy
+pyttsx3
+tinydb
