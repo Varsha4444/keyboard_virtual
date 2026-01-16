@@ -21,8 +21,11 @@ class EyeGazeKeyboard(QWidget):
         self.setWindowTitle("Eye Gaze Virtual Keyboard")
         self.setGeometry(100, 50, 1200, 800)
 
+        # ---------------- APP MODE ----------------
+        self.app_mode = "CALIBRATION"   # CALIBRATION → READY → TYPING
+
         # ---------------- UI ----------------
-        self.title = QLabel("Press START to calibrate")
+        self.title = QLabel("START CALIBRATION")
         self.title.setAlignment(Qt.AlignCenter)
         self.title.setFont(QFont("Arial", 18, QFont.Bold))
 
@@ -32,9 +35,10 @@ class EyeGazeKeyboard(QWidget):
             "background:#f5f5f5; padding:15px; border:2px solid black;"
         )
         self.text_buffer.setFixedHeight(90)
+        self.text_buffer.hide()
 
         self.video = QLabel()
-        self.video.setFixedSize(800, 500)
+        self.video.setFixedSize(900, 550)
         self.video.setAlignment(Qt.AlignCenter)
 
         self.progress = QProgressBar()
@@ -42,15 +46,20 @@ class EyeGazeKeyboard(QWidget):
         self.progress.setFixedHeight(25)
 
         # Buttons
-        self.start_btn = QPushButton("START")
+        self.start_typing_btn = QPushButton("START TYPING")
         self.clear_btn = QPushButton("CLEAR")
         self.speak_btn = QPushButton("SPEAK TEXT")
         self.exit_btn = QPushButton("EXIT")
 
+        self.start_typing_btn.hide()
+        self.clear_btn.hide()
+        self.speak_btn.hide()
+
         btn_row = QHBoxLayout()
-        for b in [self.start_btn, self.clear_btn, self.speak_btn, self.exit_btn]:
-            b.setFixedHeight(40)
-            btn_row.addWidget(b)
+        btn_row.addWidget(self.start_typing_btn)
+        btn_row.addWidget(self.clear_btn)
+        btn_row.addWidget(self.speak_btn)
+        btn_row.addWidget(self.exit_btn)
 
         # ---------------- KEYBOARD ----------------
         self.keyboard = QWidget()
@@ -66,21 +75,24 @@ class EyeGazeKeyboard(QWidget):
             grid.addWidget(btn, i // 9, i % 9)
 
         self.keyboard.setLayout(grid)
+        self.keyboard.hide()
 
         # Layout
         layout = QVBoxLayout()
         layout.addWidget(self.title)
         layout.addWidget(self.text_buffer)
-        layout.addWidget(self.video, alignment=Qt.AlignCenter)
+        layout.addWidget(self.video)
         layout.addWidget(self.progress)
         layout.addLayout(btn_row)
         layout.addWidget(self.keyboard)
         self.setLayout(layout)
 
         # ---------------- CV ----------------
-        self.cap = None
+        self.cap = cv2.VideoCapture(0)
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)
+        self.timer.start(30)
+
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(refine_landmarks=True)
 
         # ---------------- TTS ----------------
@@ -95,42 +107,28 @@ class EyeGazeKeyboard(QWidget):
 
         self.speak_async = speak_async
 
-        # ---------------- STATE ----------------
-        self.calibrated = False
-        self.center_ratio = None
-        self.calib_start = None
-        self.calib_step = 0
+        # ---------------- CALIBRATION ----------------
         self.calib_points = ["CENTER", "TL", "TR", "BL", "BR"]
+        self.calib_step = 0
+        self.calib_start = None
+        self.center_ratio = None
+        self.CALIB_DWELL = 1.5
 
+        # ---------------- TYPING ----------------
         self.zone = "CENTER"
         self.scan_index = 0
-        self.last_scan_time = time.time()
-
+        self.last_scan = time.time()
         self.dwell_start = None
-        self.DWELL_TIME = 0.6      # 🔥 FAST typing
-        self.SCAN_SPEED = 0.45    # 🔥 Stable scanning
+        self.locked_key = None
 
-        self.scanning_paused = False
+        self.DWELL_TIME = 0.6
+        self.SCAN_SPEED = 0.45
 
-        # Actions
-        self.start_btn.clicked.connect(self.start_system)
+        # ---------------- ACTIONS ----------------
+        self.start_typing_btn.clicked.connect(self.start_typing)
         self.clear_btn.clicked.connect(lambda: self.text_buffer.setText(""))
-        self.speak_btn.clicked.connect(self.speak_text)
+        self.speak_btn.clicked.connect(lambda: self.speak_async(self.text_buffer.text()))
         self.exit_btn.clicked.connect(self.close)
-
-    # -------------------------------------------------
-    def start_system(self):
-        self.cap = cv2.VideoCapture(0)
-        self.calibrated = False
-        self.calib_step = 0
-        self.center_ratio = None
-        self.calib_start = time.time()
-        self.timer.start(30)
-        self.title.setText("Calibration started – follow the dots 👁️")
-
-    def speak_text(self):
-        if self.text_buffer.text().strip():
-            self.speak_async(self.text_buffer.text())
 
     # -------------------------------------------------
     def iris_ratio(self, lm, w):
@@ -139,16 +137,27 @@ class EyeGazeKeyboard(QWidget):
         iris = np.mean([lm[i].x * w for i in [468, 469, 470, 471]])
         return (iris - left) / (right - left)
 
-    def draw_calibration_dot(self, frame, point):
+    def draw_dot(self, frame, point, active):
         h, w, _ = frame.shape
-        positions = {
+        pos = {
             "CENTER": (w // 2, h // 2),
-            "TL": (60, 60),
-            "TR": (w - 60, 60),
-            "BL": (60, h - 60),
-            "BR": (w - 60, h - 60)
+            "TL": (80, 80),
+            "TR": (w - 80, 80),
+            "BL": (80, h - 80),
+            "BR": (w - 80, h - 80)
         }
-        cv2.circle(frame, positions[point], 15, (0, 0, 255), -1)
+        color = (0, 0, 255) if active else (255, 0, 0)
+        cv2.circle(frame, pos[point], 20, color, -1)
+
+    # -------------------------------------------------
+    def start_typing(self):
+        self.app_mode = "TYPING"
+        self.title.setText("Eye Gaze Virtual Keyboard")
+        self.keyboard.show()
+        self.text_buffer.show()
+        self.clear_btn.show()
+        self.speak_btn.show()
+        self.start_typing_btn.hide()
 
     # -------------------------------------------------
     def update_frame(self):
@@ -160,30 +169,43 @@ class EyeGazeKeyboard(QWidget):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         res = self.face_mesh.process(rgb)
 
-        if res.multi_face_landmarks:
-            lm = res.multi_face_landmarks[0].landmark
-            h, w, _ = frame.shape
-            ratio = self.iris_ratio(lm, w)
+        if not res.multi_face_landmarks:
+            self.show_frame(frame)
+            return
 
-            # -------- CALIBRATION --------
-            if not self.calibrated:
-                point = self.calib_points[self.calib_step]
-                self.draw_calibration_dot(frame, point)
+        lm = res.multi_face_landmarks[0].landmark
+        ratio = self.iris_ratio(lm, frame.shape[1])
 
-                if time.time() - self.calib_start > 1.8:
-                    if point == "CENTER":
-                        self.center_ratio = ratio
-                    self.calib_step += 1
-                    self.calib_start = time.time()
+        # ---------------- CALIBRATION ----------------
+        if self.app_mode == "CALIBRATION":
+            point = self.calib_points[self.calib_step]
 
-                    if self.calib_step >= len(self.calib_points):
-                        self.calibrated = True
-                        self.title.setText("Calibration complete – typing enabled ✅")
+            if self.calib_start is None:
+                self.calib_start = time.time()
 
-                self.show_frame(frame)
-                return
+            dwell = time.time() - self.calib_start
+            self.progress.setValue(int(min(dwell / self.CALIB_DWELL, 1) * 100))
 
-            # -------- ZONE --------
+            active = dwell >= self.CALIB_DWELL
+            self.draw_dot(frame, point, active)
+
+            if active:
+                if point == "CENTER":
+                    self.center_ratio = ratio
+                self.calib_step += 1
+                self.calib_start = None
+                self.progress.setValue(0)
+
+                if self.calib_step >= len(self.calib_points):
+                    self.app_mode = "READY"
+                    self.title.setText("Calibration Finished ✅")
+                    self.start_typing_btn.show()
+
+            self.show_frame(frame)
+            return
+
+        # ---------------- TYPING ----------------
+        if self.app_mode == "TYPING":
             if ratio < self.center_ratio - 0.06:
                 self.zone = "LEFT"
             elif ratio > self.center_ratio + 0.06:
@@ -191,19 +213,11 @@ class EyeGazeKeyboard(QWidget):
             else:
                 self.zone = "CENTER"
 
-            # -------- SCANNING (PAUSED DURING DWELL) --------
             now = time.time()
-            if (
-                not self.scanning_paused
-                and self.zone in ["LEFT", "RIGHT"]
-                and now - self.last_scan_time > self.SCAN_SPEED
-            ):
+            if self.locked_key is None and self.zone in ["LEFT", "RIGHT"] and now - self.last_scan > self.SCAN_SPEED:
                 self.scan_index += 1
-                self.last_scan_time = now
-                self.dwell_start = None
-                self.progress.setValue(0)
+                self.last_scan = now
 
-            # -------- HIGHLIGHT --------
             active_key = None
             for i, btn in enumerate(self.keys):
                 btn.setStyleSheet("")
@@ -214,32 +228,27 @@ class EyeGazeKeyboard(QWidget):
                     btn.setStyleSheet("background:yellow")
                     active_key = btn
 
-            # -------- DWELL SELECTION --------
-            if active_key and self.zone in ["LEFT", "RIGHT"]:
-                self.scanning_paused = True
-
-                if self.dwell_start is None:
+            if active_key:
+                if self.locked_key is None:
+                    self.locked_key = active_key
                     self.dwell_start = time.time()
 
                 dwell = time.time() - self.dwell_start
                 self.progress.setValue(int(min(dwell / self.DWELL_TIME, 1) * 100))
 
                 if dwell >= self.DWELL_TIME:
-                    key_text = active_key.text()
-                    self.text_buffer.setText(
-                        self.text_buffer.text() + (" " if key_text == "␣" else key_text)
-                    )
-                    self.speak_async(key_text if key_text != "␣" else "space")
+                    txt = active_key.text()
+                    self.text_buffer.setText(self.text_buffer.text() + (" " if txt == "␣" else txt))
+                    self.speak_async("space" if txt == "␣" else txt)
 
-                    # Reset for next key
+                    self.locked_key = None
                     self.dwell_start = None
                     self.progress.setValue(0)
-                    self.scanning_paused = False
                     self.scan_index += 1
             else:
-                self.scanning_paused = False
-                self.progress.setValue(0)
+                self.locked_key = None
                 self.dwell_start = None
+                self.progress.setValue(0)
 
         self.show_frame(frame)
 
