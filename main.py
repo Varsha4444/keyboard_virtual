@@ -1,3 +1,12 @@
+from database_manager import (
+    create_tables,
+    insert_user,
+    start_session,
+    insert_gaze_data,
+    insert_calibration_data
+)
+
+
 import sys
 import cv2
 import mediapipe as mp
@@ -26,11 +35,15 @@ class EyeGazeKeyboard(QWidget):
 
         # ---------------- PROFILE ----------------
         self.profile_manager = ProfileManager()
+        # ---------------- DATABASE ----------------
+        create_tables()
+        self.user_id = insert_user("Default User", 20)
+        self.session_id = start_session(self.user_id)
+
 
         # ---------------- MODE ----------------
         self.app_mode = "CALIBRATION"
 
-        # ---------------- TTS ----------------
         self.engine = pyttsx3.init()
         self.engine.setProperty("rate", 170)
         self.engine.setProperty("volume", 1.0)
@@ -270,6 +283,14 @@ class EyeGazeKeyboard(QWidget):
         if active:
             if point == "CENTER":
                 self.center_ratio = ratio
+            insert_calibration_data(
+                self.user_id,
+                point,
+                ratio,
+                0.0,
+                1
+            )
+
             self.calib_step += 1
             self.calib_start = None
             self.progress.setValue(0)
@@ -289,6 +310,9 @@ class EyeGazeKeyboard(QWidget):
             self.zone = "RIGHT"
         else:
             self.zone = "CENTER"
+        insert_gaze_data(self.session_id, self.zone)
+
+            
 
         now = time.time()
         if self.locked_key is None and self.zone in ["LEFT", "RIGHT"] and now - self.last_scan > self.SCAN_SPEED:

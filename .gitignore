@@ -1,0 +1,9 @@
+
+# Database
+gaze_data.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.cpython-*
