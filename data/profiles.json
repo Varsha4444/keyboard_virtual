@@ -1,0 +1,1 @@
+{"_default": {"1": {"name": "default", "settings": {"dwell_time": 0.6, "rate": 200, "volume": 1.0, "voice_index": 0, "dark_mode": true}}, "2": {"name": "varsha", "settings": {"dwell_time": 0.6, "rate": 200, "volume": 0.9, "voice_index": 0, "dark_mode": false}}}}
